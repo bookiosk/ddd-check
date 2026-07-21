@@ -1,5 +1,31 @@
 # Domain Layer Specification
 
+
+## 目录
+- [Part A: Base Rules (All Modes)](#part-a-base-rules-all-modes)
+  - [A.1 Package Structure](#a1-package-structure)
+  - [A.2 Domain Layer Isolation](#a2-domain-layer-isolation)
+  - [A.3 Design Patterns — FORBIDDEN in Domain Layer](#a3-design-patterns-—-forbidden-in-domain-layer)
+  - [A.4 Param Objects](#a4-param-objects)
+  - [A.5 Result Objects](#a5-result-objects)
+  - [A.6 Exception Handling — Two Modes](#a6-exception-handling-—-two-modes)
+  - [A.7 Repository Interface](#a7-repository-interface)
+  - [A.8 Lazy-Loading External Data in DomainService](#a8-lazy-loading-external-data-in-domainservice)
+- [Part B: Write Mode](#part-b-write-mode)
+  - [B.1 DomainService — Write Mode](#b1-domainservice-—-write-mode)
+  - [B.2 Aggregate Root — Write Mode](#b2-aggregate-root-—-write-mode)
+  - [B.3 Entity — Write Mode](#b3-entity-—-write-mode)
+  - [B.4 Value Object — Write Mode](#b4-value-object-—-write-mode)
+  - [B.5 Repository — Write Mode](#b5-repository-—-write-mode)
+- [Part C: Read Mode](#part-c-read-mode)
+  - [C.1 Repository — Read Mode](#c1-repository-—-read-mode)
+- [Part D: Pure Calculate Mode](#part-d-pure-calculate-mode)
+  - [D.1 DomainService — Pure Calculate Mode](#d1-domainservice-—-pure-calculate-mode)
+  - [D.2 Result — Pure Calculate Mode](#d2-result-—-pure-calculate-mode)
+- [Part E: Rule+Calculate Mode](#part-e-rule+calculate-mode)
+  - [E.1 DomainService — Rule+Calculate Mode](#e1-domainservice-—-rule+calculate-mode)
+  - [E.2 Rule Aggregate — Rule+Calculate Mode](#e2-rule-aggregate-—-rule+calculate-mode)
+
 ## Part A: Base Rules (All Modes)
 
 ### A.1 Package Structure
