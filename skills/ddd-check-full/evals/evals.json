@@ -1,0 +1,23 @@
+[
+  {
+    "id": "full-001",
+    "prompt": "run a full DDD audit on this project",
+    "expected_output": "Comprehensive report with executive summary, per-layer breakdown, dependency graph, and recommendations",
+    "assertions": ["all Java files scanned", "every layer checked", "anti-patterns section present", "dependency direction verified"],
+    "files": ["src/main/java/com/example/**/*.java"]
+  },
+  {
+    "id": "full-002",
+    "prompt": "architecture review before release",
+    "expected_output": "Complete compliance report with severity breakdown, worst layer identified",
+    "assertions": ["compliance score calculated", "worst layer identified", "CRITICAL issues listed first", "recommendations ranked by priority"],
+    "files": ["src/main/java/com/example/**/*.java"]
+  },
+  {
+    "id": "full-003",
+    "prompt": "check the entire project for DDD anti-patterns",
+    "expected_output": "Anti-patterns section cross-referenced with rules/anti-patterns.md, each finding has file location and fix",
+    "assertions": ["anemic models detected", "design patterns in domain flagged", "cross-layer dependency violations found"],
+    "files": ["src/main/java/com/example/**/*.java"]
+  }
+]

@@ -1,6 +1,8 @@
 ---
 name: ddd-check-incremental
-description: Incremental DDD compliance check — scans only changed/new Java files in git diff and validates against DDD layer rules. Use before every commit.
+description: Incremental DDD compliance check scanning only changed Java files via git diff. Use when user mentions "check my changes", "DDD check", "review this code", "pre-commit check", or "validate my code". For full audits, see ddd-check-full.
+license: Apache-2.0
+metadata: {"version": "1.0", "skill-author": "bookiosk"}
 model: claude-sonnet-4-20250514
 allowed-tools: Read, Grep, Glob, Bash
 user-invocable: true
@@ -10,112 +12,68 @@ user-invocable: true
 
 Check only **new or modified** Java files against DDD layer rules. Fast, pre-commit focused.
 
-## Trigger
-
-Run when user says "check my changes", "DDD check", "review this code", or before committing.
-
 ## Workflow
 
 ### Step 1: Find Changed Files
 
 ```bash
-# Staged changes (pre-commit)
 git diff --cached --name-only --diff-filter=ACMR | grep '\.java$'
-
-# Unstaged changes (working tree)
 git diff --name-only --diff-filter=ACMR | grep '\.java$'
-
-# Both
 git diff HEAD --name-only --diff-filter=ACMR | grep '\.java$'
 ```
 
-If no Java files changed, report: "No Java files changed — nothing to check."
+If no Java files changed: "No Java files changed — nothing to check."
 
-### Step 2: Classify Each File by Layer
-
-Map file path to DDD layer:
+### Step 2: Classify by Layer
 
 | Package Pattern | Layer | Rule File |
 |---|---|---|
-| `**/ddd/common/**` | Common | (structural rules only) |
 | `**/ddd/domain/**` | Domain | `rules/domain-layer.md` |
 | `**/ddd/application/**` | Application | `rules/application-layer.md` |
 | `**/ddd/adaptor/**` | Adaptor | `rules/adaptor-layer.md` |
 | `**/ddd/infrastructure/**` | Infrastructure | `rules/infrastructure-layer.md` |
 | `**/ddd/client/**` | Client | `rules/client-layer.md` |
 | `**/ddd/model/**` | Model | `rules/model-layer.md` |
+| `**/ddd/common/**` | Common | (structural only) |
 
-### Step 3: Read Relevant Rule Files
+### Step 3: Load Relevant Rules
 
-Load only the rule files matching the changed layers. Plus always load `rules/anti-patterns.md`.
+Load only rule files matching changed layers. Always load `rules/anti-patterns.md`.
 
-### Step 4: Check Each Changed File
+### Step 4: Check Each File
 
-For each changed file, read it and validate against:
-
-1. **Structural rules** — correct base class, correct package, correct naming
-2. **Dependency rules** — no forbidden imports (e.g. domain must not import infrastructure)
-3. **Anti-patterns** — cross-check against `rules/anti-patterns.md`
+Validate each changed file against: structural rules (base class, package, naming), dependency rules (no forbidden imports), anti-patterns (`rules/anti-patterns.md`).
 
 ### Step 5: Report
-
-Format output as:
 
 ```
 ## DDD Check: {branch} → {n} files changed
 
 ### {FilePath}.java — {Layer}
-🔴 CRITICAL: {problem}. {fix}.
-🟡 HIGH: {problem}. {fix}.
+CRITICAL: {problem}. {fix}.
+HIGH: {problem}. {fix}.
 
 ### Summary
-- {n} files checked
-- {x} violations (C: {a}, H: {b}, M: {c}, L: {d})
+- {n} files checked, {x} violations (C: {a}, H: {b}, M: {c}, L: {d})
 ```
 
-## Severity
+See `examples/violation-report.md` for detailed sample output.
 
-| Level | Criteria |
-|---|---|
-| **CRITICAL** | Architecture violation — wrong layer dependency, missing base class, domain depends on infrastructure |
-| **HIGH** | Rule violation — wrong naming, public setter on aggregate, wrong exception mode |
-| **MEDIUM** | Convention deviation — missing JavaDoc, wrong file location |
-| **LOW** | Style suggestion |
+## Layer Checklists
 
-## Key Checks
+See `references/shared-checks.md` for the complete severity table and per-layer checklists.
 
-**Domain Layer (MOST CRITICAL):**
-- [ ] All aggregates extend `BaseAggregate<ID>`
-- [ ] All entities extend `BaseEntity<ID>`
-- [ ] All value objects extend `BaseValue`
-- [ ] `setId()` is `protected`, not `public`
-- [ ] No infrastructure imports (no Mapper, no JPA, no SQL)
-- [ ] Repository interfaces extend `AggregateRepository<T, ID, Q>`
-- [ ] External calls go through `GatewayI` interfaces
-- [ ] Aggregate methods = business behaviors, not CRUD
-- [ ] Design patterns FORBIDDEN in domain (Strategy, Factory, etc.)
-- [ ] 阻断型 throws exception, 分支型 returns ResultDO (see `references/exception-handling.md`)
+## Common Mistakes
 
-**Application Layer:**
-- [ ] Cmd services extend `ApplicationCmdService`
-- [ ] Qry services extend `ApplicationQueryService`
-- [ ] APP catches Domain/Adaptor exceptions, converts to ResultDO
-- [ ] APP never throws exceptions to Adaptor
+- **Checking unchanged files** — incremental mode only touches `git diff` output
+- **Reporting "looks good" for clean files** — only report problems found
+- **Flagging intentional violations** — verify with author before marking CRITICAL
 
-**Infrastructure Layer:**
-- [ ] Repository impls in correct package
-- [ ] PO classes separate from domain objects
-- [ ] Converter/Assembler between PO and domain
-- [ ] All GatewayI implementations here, not in domain
+## Quality Checklist
 
-**Client Layer:**
-- [ ] All DTOs extend `BaseDTO`
-- [ ] No domain classes exposed in DTOs
-
-## Important
-
-- Do NOT check unchanged files — incremental only
-- Reference the specific rule section when flagging violations (e.g. "rules/domain-layer.md Section A.3")
-- Suggest the exact fix, not just the problem
-- If a violation is intentional, note it but don't flag as CRITICAL
-- Only report real problems — don't report "looks good" for files with zero issues
+Before reporting:
+- [ ] Only changed files checked (verify via `git diff` output)
+- [ ] Every violation references the specific rule section (e.g. "rules/domain-layer.md Section A.3")
+- [ ] Each violation includes the exact fix, not just the problem
+- [ ] No false positives from intentional design decisions
+- [ ] Anti-patterns cross-checked against `rules/anti-patterns.md`

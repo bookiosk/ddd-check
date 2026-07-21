@@ -2,19 +2,21 @@
 
 DDD compliance check skills for Claude Code. Two modes — fast incremental and thorough full audit.
 
+[![agentskills.io](https://img.shields.io/badge/agentskills.io-compliant-6e3bf0)](https://agentskills.io)
+
 ## Skills
 
 ### `ddd-check-incremental`
 
 Scans **only changed/new Java files** (via `git diff`) against DDD rules. Fast, pre-commit focused.
 
-Trigger: "check my changes", "DDD check", "review this code"
+Trigger: "check my changes", "DDD check", "review this code", "pre-commit check"
 
 ### `ddd-check-full`
 
 Audits **every Java file** in the project against all DDD rules. For architecture reviews and pre-release checks.
 
-Trigger: "full DDD audit", "architecture review", "check entire project"
+Trigger: "full DDD audit", "architecture review", "DDD compliance report", "check entire project"
 
 ## Install
 
@@ -60,9 +62,13 @@ Add to `.claude/settings.json`:
 ddd-check/
 ├── skills/
 │   ├── ddd-check-incremental/
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── evals/
+│   │       └── evals.json
 │   └── ddd-check-full/
-│       └── SKILL.md
+│       ├── SKILL.md
+│       └── evals/
+│           └── evals.json
 ├── rules/                    # DDD layer rules (checked against code)
 │   ├── domain-layer.md
 │   ├── application-layer.md
@@ -71,12 +77,15 @@ ddd-check/
 │   ├── client-layer.md
 │   ├── model-layer.md
 │   └── anti-patterns.md
-├── references/               # Education and onboarding
+├── references/               # Shared checklists and education
 │   ├── overview.md
+│   ├── shared-checks.md
 │   ├── base-classes-reference.md
 │   ├── exception-handling.md
 │   ├── anemic-vs-ddd.md
 │   └── quick-start-tutorial.md
+├── examples/
+│   └── violation-report.md
 └── README.md
 ```
 

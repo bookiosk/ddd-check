@@ -1,0 +1,23 @@
+[
+  {
+    "id": "inc-001",
+    "prompt": "check my changes for DDD compliance",
+    "expected_output": "Scans only git diff files, classifies by layer, reports violations with severity",
+    "assertions": ["only git-diff files checked", "violations reference rule sections", "severity levels assigned correctly"],
+    "files": ["src/main/java/com/example/domain/order/model/aggregate/Order.java"]
+  },
+  {
+    "id": "inc-002",
+    "prompt": "DDD check before I commit",
+    "expected_output": "Checks staged and unstaged Java files, skips non-Java changes",
+    "assertions": ["staged files checked", "unstaged files checked", "non-Java files ignored"],
+    "files": ["src/main/java/com/example/application/order/scenario/CreateOrderScenario.java"]
+  },
+  {
+    "id": "inc-003",
+    "prompt": "review this code — I added a new domain entity",
+    "expected_output": "Validates entity extends BaseEntity, setId is protected, no infrastructure imports",
+    "assertions": ["BaseEntity check passed", "setId visibility is protected", "no forbidden imports"],
+    "files": ["src/main/java/com/example/domain/order/model/entity/OrderItem.java"]
+  }
+]
