@@ -1,1 +1,0 @@
-../../../rules/application-layer.md

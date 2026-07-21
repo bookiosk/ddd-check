@@ -1,1 +1,0 @@
-../../../rules/infrastructure-layer.md

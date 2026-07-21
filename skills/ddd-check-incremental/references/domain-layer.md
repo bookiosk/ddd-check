@@ -1,1 +1,0 @@
-../../../rules/domain-layer.md
