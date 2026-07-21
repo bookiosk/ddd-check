@@ -1,0 +1,1 @@
+../../../rules/adaptor-layer.md

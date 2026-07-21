@@ -24,7 +24,7 @@ Report count: "Scanning {N} files across {M} layers..."
 
 ### Step 2: Load Rule Files
 
-Read all files: `rules/domain-layer.md`, `rules/application-layer.md`, `rules/adaptor-layer.md`, `rules/infrastructure-layer.md`, `rules/client-layer.md`, `rules/model-layer.md`, `rules/anti-patterns.md`. Load `references/base-classes-reference.md` and `references/exception-handling.md` as needed.
+Read all files: `references/domain-layer.md`, `references/application-layer.md`, `references/adaptor-layer.md`, `references/infrastructure-layer.md`, `references/client-layer.md`, `references/model-layer.md`, `references/anti-patterns.md`. Load `references/base-classes-reference.md` and `references/exception-handling.md` as needed.
 
 ### Step 3: Layer-by-Layer Audit
 
@@ -57,4 +57,4 @@ Before finalizing the audit report:
 - [ ] Every violation references the specific rule section (e.g. "rules/domain-layer.md Section A.3")
 - [ ] Each violation includes the exact fix, not just the problem
 - [ ] CRITICAL issues listed first, prioritized by blast radius
-- [ ] Anti-pattern section cross-referenced with `rules/anti-patterns.md`
+- [ ] Anti-pattern section cross-referenced with `references/anti-patterns.md`

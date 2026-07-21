@@ -28,21 +28,21 @@ If no Java files changed: "No Java files changed — nothing to check."
 
 | Package Pattern | Layer | Rule File |
 |---|---|---|
-| `**/ddd/domain/**` | Domain | `rules/domain-layer.md` |
-| `**/ddd/application/**` | Application | `rules/application-layer.md` |
-| `**/ddd/adaptor/**` | Adaptor | `rules/adaptor-layer.md` |
-| `**/ddd/infrastructure/**` | Infrastructure | `rules/infrastructure-layer.md` |
-| `**/ddd/client/**` | Client | `rules/client-layer.md` |
-| `**/ddd/model/**` | Model | `rules/model-layer.md` |
+| `**/ddd/domain/**` | Domain | `references/domain-layer.md` |
+| `**/ddd/application/**` | Application | `references/application-layer.md` |
+| `**/ddd/adaptor/**` | Adaptor | `references/adaptor-layer.md` |
+| `**/ddd/infrastructure/**` | Infrastructure | `references/infrastructure-layer.md` |
+| `**/ddd/client/**` | Client | `references/client-layer.md` |
+| `**/ddd/model/**` | Model | `references/model-layer.md` |
 | `**/ddd/common/**` | Common | (structural only) |
 
 ### Step 3: Load Relevant Rules
 
-Load only rule files matching changed layers. Always load `rules/anti-patterns.md`.
+Load only rule files matching changed layers. Always load `references/anti-patterns.md`.
 
 ### Step 4: Check Each File
 
-Validate each changed file against: structural rules (base class, package, naming), dependency rules (no forbidden imports), anti-patterns (`rules/anti-patterns.md`).
+Validate each changed file against: structural rules (base class, package, naming), dependency rules (no forbidden imports), anti-patterns (`references/anti-patterns.md`).
 
 ### Step 5: Report
 
@@ -76,4 +76,4 @@ Before reporting:
 - [ ] Every violation references the specific rule section (e.g. "rules/domain-layer.md Section A.3")
 - [ ] Each violation includes the exact fix, not just the problem
 - [ ] No false positives from intentional design decisions
-- [ ] Anti-patterns cross-checked against `rules/anti-patterns.md`
+- [ ] Anti-patterns cross-checked against `references/anti-patterns.md`

@@ -63,13 +63,17 @@ ddd-check/
 ├── skills/
 │   ├── ddd-check-incremental/
 │   │   ├── SKILL.md
-│   │   └── evals/
-│   │       └── evals.json
+│   │   ├── evals/
+│   │   │   └── evals.json
+│   │   ├── references/      → symlink to ../../rules/ + ../../references/
+│   │   └── examples/        → symlink to ../../examples/
 │   └── ddd-check-full/
 │       ├── SKILL.md
-│       └── evals/
-│           └── evals.json
-├── rules/                    # DDD layer rules (checked against code)
+│       ├── evals/
+│       │   └── evals.json
+│       ├── references/      → symlink to ../../rules/ + ../../references/
+│       └── examples/        → symlink to ../../examples/
+├── rules/                    # Single source of truth — DDD layer rules
 │   ├── domain-layer.md
 │   ├── application-layer.md
 │   ├── adaptor-layer.md
@@ -77,7 +81,7 @@ ddd-check/
 │   ├── client-layer.md
 │   ├── model-layer.md
 │   └── anti-patterns.md
-├── references/               # Shared checklists and education
+├── references/               # Single source of truth — guides and checklists
 │   ├── overview.md
 │   ├── shared-checks.md
 │   ├── base-classes-reference.md

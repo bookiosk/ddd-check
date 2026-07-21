@@ -1,0 +1,1 @@
+../../../references/shared-checks.md
