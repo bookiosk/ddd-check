@@ -138,6 +138,7 @@ public class PassengerDTO extends BaseDTO {
 - Inheritance: MUST extend `BaseDTO`
 - MUST use RequestDTO to encapsulate parameters, FORBIDDEN: primitive types or Map
 - Each method gets its own independent RequestDTO
+- Self-validation: provide a `void check()` method that throws `IllegalArgumentException` on failure (client layer MUST NOT depend on domain's `BizException` — keep the external package clean)
 
 ```java
 public class CreateOrderRequestDTO extends BaseDTO {
@@ -145,14 +146,13 @@ public class CreateOrderRequestDTO extends BaseDTO {
     private String productId;
     private Integer quantity;
 
-    public ResultDO check() {
+    public void check() {
         if (productId == null || productId.isEmpty()) {
-            return ResultDO.buildFailResult("PARAM_ERROR", "Product ID must not be empty");
+            throw new IllegalArgumentException("Product ID must not be empty");
         }
         if (quantity == null || quantity <= 0) {
-            return ResultDO.buildFailResult("PARAM_ERROR", "Quantity must be greater than 0");
+            throw new IllegalArgumentException("Quantity must be greater than 0");
         }
-        return ResultDO.buildSuccessResult();
     }
 }
 ```

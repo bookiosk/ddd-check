@@ -68,7 +68,7 @@ Application layer splits into:
 
 ### A.4 Exception Boundary — APP as Unified Catch Point
 
-APP 层是异常处理的统一收口。Domain 和 outAdaptor 的阻断型异常在这里被捕获并转换为 `ResultDO`。
+APP 层是异常处理的统一收口。Domain、outAdaptor 的阻断型异常以及 `requestDTO.check()` 的参数校验异常都在这里被捕获并转换为 `ResultDO`。
 
 ```
 Domain / outAdaptor          APP (boundary)              Adaptor (inAdaptor)
@@ -80,9 +80,12 @@ Domain / outAdaptor          APP (boundary)              Adaptor (inAdaptor)
       │                          │  ← Response / ResultDO ──  │
 ```
 
+**APP 方法结构规则：** 除日志操作（`log.xxx`）外，所有业务操作 MUST 放在 `try` 块内；`catch` 块只负责记日志 + 转换为 `ResultDO.fail()`。
+
 **APP catches:**
 | Source | Exception | APP Action |
 |---|---|---|
+| RequestDTO 参数自校验 | `IllegalArgumentException` | `ResultDO.fail("PARAM_ERROR", e.getMessage())` |
 | DomainService | `BizException` | `ResultDO.fail(e.getCode(), e.getMsg())` |
 | Aggregate/Entity | `AggregateException` | `ResultDO.fail(e.getCode(), e.getMsg())` |
 | outAdaptor | Exception | Scene-specific: retry / fallback / `ResultDO.fail()` |
@@ -94,23 +97,31 @@ Domain / outAdaptor          APP (boundary)              Adaptor (inAdaptor)
 | `ResultDO.fail("DUPLICATE", msg, existingOrder)` | 提取 `existingOrder` 返回给上游 |
 | `ResultDO.fail("CACHE_MISS", key, null)` | 降级走其他数据源 |
 
+**阻断型 vs 分支型 — 优先抛异常:**
+
+| 失败是否终止整个 APP 方法 | 机制 |
+|---|---|
+| 失败必须终止整个 APP 方法（事件到此结束，无需数据回传） | **抛异常（阻断型）** — APP catch 后转 `ResultDO.fail()` |
+| 失败但需特殊处理 / 走其他逻辑继续完成正常链路 | **返回 `ResultDO`（分支型）** — APP 判断后走其他链路 |
+
+**决策原则：优先抛异常。** 只有当抛异常会导致逻辑不对（例如失败后仍需走降级 / 兜底 / 其他链路继续正常流程）时，才允许返回 `ResultDO`。
+
 **APP 自身不抛异常给 Adaptor** — all returns are `ResultDO<T>`.
 
 ### A.5 Parameters and Return Values
 
 | Rule | Spec |
 |------|------|
-| Input parameter | MUST use `RequestDTO`, FORBIDDEN: primitive types or Map |
-| Parameter validation | Via `requestDTO.check()` returning `ResultDO`, FORBIDDEN: writing validation logic in AppService |
-| Return value | Always `ResultDO<T>`, generic is ResponseDTO |
+| Input parameter | MUST use `RequestDTO` (a concrete `{MethodName}RequestDTO` subclass defined in `client` layer, e.g. `CreateOrderRequestDTO extends BaseDTO`), FORBIDDEN: primitive types or Map |
+| Parameter validation | Via `requestDTO.check()` — a `void` method that throws `IllegalArgumentException` on failure. FORBIDDEN: writing validation logic in AppService |
+| Return value | Always `ResultDO<T>`, generic is ResponseDTO (a concrete `{MethodName}ResponseDTO` subclass defined in `client` layer, e.g. `CreateOrderResponseDTO extends BaseDTO`) |
 | Error handling | APP is the **exception boundary**: catches Domain/Adaptor blocking exceptions → `ResultDO.fail()`. Never throws to Adaptor. |
 
+> **IMPORTANT — `RequestDTO`/`ResponseDTO` are naming suffixes, not concrete classes.** Never write a class literally named `RequestDTO` or `ResponseDTO`. The parameter is always a concrete subclass like `CreateOrderRequestDTO extends BaseDTO`; the return generic is always a concrete subclass like `CreateOrderResponseDTO extends BaseDTO`. Both are defined in the `client` module.
+
 ```java
-// Parameter self-validation (by RequestDTO itself)
-ResultDO checkResult = requestDTO.check();
-if (!checkResult.isSuccess()) {
-    return ResultDO.buildFailResult(checkResult.getCode(), checkResult.getMsg());
-}
+// Parameter self-validation (by RequestDTO itself) — void, throws on failure
+requestDTO.check();
 
 // Success
 return ResultDO.buildSuccessResult(responseDTO);
@@ -124,9 +135,9 @@ return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
 | Scenario | Location | Notes |
 |----------|----------|-------|
 | Exposed as external API | `client` module `req/` and `res/` packages | External callers depend on these DTOs |
-| Application-internal only | `application` module `model/` package | Not exposed externally, only for internal orchestration |
+| Application-internal only | top-level `model` module | Not exposed externally, only for internal orchestration |
 
-**Rule:** If a DTO is transparently passed to external callers by Input Adaptor (Controller, HSF, etc.), put it in `client`. If only used within Application layer flow, put it in `application/model/`.
+**Rule:** If a DTO is transparently passed to external callers by Input Adaptor (Controller, HSF, etc.), put it in `client`. If only used within Application layer flow, put it in the **top-level `model` module** (the shared internal module), NOT in an `application/model/` sub-package.
 
 ### A.7 Dependency Rules
 
@@ -159,6 +170,8 @@ return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
 
 **Naming:** `{AggregateName}Assembler` or `{BusinessScene}Assembler`
 
+**Usage in APP:** RequestDTO → Domain Param (before calling DomainService), and Aggregate → ResponseDTO (before returning).
+
 ```java
 public class OrderAssembler {
 
@@ -177,6 +190,31 @@ public class OrderAssembler {
         responseDTO.setStatus(order.getStatus());
         return responseDTO;
     }
+}
+```
+
+**Assembler call site inside AppService method (all inside try block):**
+
+```java
+try {
+    requestDTO.check();
+
+    // DTO → Param via Assembler, then call DomainService
+    CreateOrderParam param = OrderAssembler.toParam(requestDTO);
+    OrderAggregate order = orderDomainService.createOrder(param);
+
+    // Aggregate → ResponseDTO via Assembler
+    CreateOrderResponseDTO responseDTO = OrderAssembler.toResponseDTO(order);
+    return ResultDO.buildSuccessResult(responseDTO);
+} catch (IllegalArgumentException e) {
+    log.error("Invalid param, requestDTO: {}", requestDTO, e);
+    return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+} catch (BizException | AggregateException e) {
+    log.error("Create order business error, requestDTO: {}", requestDTO, e);
+    return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+} catch (Throwable e) {
+    log.error("Create order system error, requestDTO: {}", requestDTO, e);
+    return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
 }
 ```
 
@@ -210,24 +248,36 @@ Input Adaptor → AppService → Adaptor (validate inventory/price)
 
 ### B.3 Orchestration Steps
 
-1. Parameter self-validation (`requestDTO.check()`)
+1. Parameter self-validation (`requestDTO.check()` — void, throws `IllegalArgumentException`)
 2. Fetch external data or validate preconditions via Adaptor (per scene needs)
 3. Convert DTO to Domain Param (via Assembler)
 4. Call DomainService (may throw blocking exception — caught by APP)
 5. Handle DomainService ResultDO for 分支型 scenarios (duplicate check, fallback)
 6. Build ResponseDTO and return `ResultDO.success()`
 
-**Exception handling in APP:**
+**Exception handling in APP (all business ops inside try, only logging + conversion in catch):**
 ```java
 try {
-    // call DomainService / outAdaptor
-    orderDomainService.confirmPayment(param);
+    // Parameter self-validation — throws IllegalArgumentException
+    requestDTO.check();
+
+    // Assembler: DTO → Param
+    CreateOrderParam param = OrderAssembler.toParam(requestDTO);
+
+    // Call DomainService / outAdaptor — throws on failure
+    OrderAggregate order = orderDomainService.createOrder(param);
+
+    // Assembler: Aggregate → ResponseDTO
+    CreateOrderResponseDTO responseDTO = OrderAssembler.toResponseDTO(order);
     return ResultDO.buildSuccessResult(responseDTO);
+} catch (IllegalArgumentException e) {
+    log.error("Invalid param, requestDTO: {}", requestDTO, e);
+    return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
 } catch (BizException | AggregateException e) {
-    log.error("Business error, param: {}", param, e);
+    log.error("Business error, requestDTO: {}", requestDTO, e);
     return ResultDO.buildFailResult(e.getCode(), e.getMsg());
 } catch (Throwable e) {
-    log.error("System error, param: {}", param, e);
+    log.error("System error, requestDTO: {}", requestDTO, e);
     return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
 }
 ```
@@ -272,38 +322,33 @@ public class OrderQueryAppServiceImpl implements OrderQueryAppService {
     @Override
     public ResultDO<GetOrderDetailResponseDTO> getOrderDetail(GetOrderDetailRequestDTO requestDTO) {
         try {
-            // 1. Self-validate
-            ResultDO checkResult = requestDTO.check();
-            if (!checkResult.isSuccess()) {
-                return ResultDO.buildFailResult(checkResult.getCode(), checkResult.getMsg());
-            }
+            // 1. Self-validate — void, throws IllegalArgumentException on failure
+            requestDTO.check();
 
-            // 2. Query intra-domain order data
-            ResultDO<OrderAggregate> queryResult = orderRepository.findById(requestDTO.getOrderId());
-            if (!queryResult.isSuccess()) {
-                return ResultDO.buildFailResult(queryResult.getMsg());
-            }
-            OrderAggregate order = queryResult.getData();
-            if (order == null) {
-                return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
-            }
+            // 2. Query intra-domain order data — throws on failure, returns simple aggregate
+            OrderAggregate order = orderRepository.findById(requestDTO.getOrderId());
 
-            // 3. Cross-domain logistics query via Adaptor
-            ResultDO<LogisticsInfoResponseDTO> logisticsResult = logisticsAdaptor.queryLogistics(order.getLogisticsNo());
-            if (!logisticsResult.isSuccess()) {
-                return ResultDO.buildFailResult(logisticsResult.getCode(), logisticsResult.getMsg());
-            }
+            // 3. Cross-domain logistics query via Adaptor — throws on failure, returns simple DTO
+            LogisticsInfoResponseDTO logistics = logisticsAdaptor.queryLogistics(order.getLogisticsNo());
 
             // 4. Assemble response
-            GetOrderDetailResponseDTO responseDTO = OrderAssembler.toGetOrderDetailResponseDTO(order, logisticsResult.getData());
+            GetOrderDetailResponseDTO responseDTO = OrderAssembler.toGetOrderDetailResponseDTO(order, logistics);
             return ResultDO.buildSuccessResult(responseDTO);
-        } catch (Exception e) {
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid param, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+        } catch (BizException | AggregateException e) {
+            log.error("Get order detail failed, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+        } catch (Throwable e) {
             log.error("Get order detail failed, requestDTO: {}", requestDTO, e);
             return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
         }
     }
 }
 ```
+
+> **Note:** Repository and Adaptor here both throw on failure (阻断型) because a failure terminates the whole APP method — no data is needed to continue. Only when the failure must be handled specially (fallback, branch to another data source) should they return `ResultDO` (分支型).
 
 ---
 
@@ -327,7 +372,7 @@ Input Adaptor → {Verb}QueryAppService → DomainService → calculate & return
 ```
 
 ### D.4 Orchestration Steps
-1. Parameter self-validation (`requestDTO.check()`)
+1. Parameter self-validation (`requestDTO.check()` — void, throws `IllegalArgumentException`)
 2. Fetch external data via Adaptor (if needed)
 3. Assemble Param, call DomainService for computation
 4. Convert Result to ResponseDTO and return
@@ -346,30 +391,27 @@ public class FeePreCalculateQueryAppServiceImpl implements FeePreCalculateQueryA
     @Override
     public ResultDO<FeePreCalculateResponseDTO> feePreCalculate(FeePreCalculateRequestDTO requestDTO) {
         try {
-            // 1. Self-validate
-            ResultDO checkResult = requestDTO.check();
-            if (!checkResult.isSuccess()) {
-                return ResultDO.buildFailResult(checkResult.getCode(), checkResult.getMsg());
-            }
+            // 1. Self-validate — void, throws IllegalArgumentException
+            requestDTO.check();
 
-            // 2. Cross-domain exchange rate query
-            ResultDO<ExchangeRateResponseDTO> rateResult = exchangeRateAdaptor.queryExchangeRate(requestDTO.getCurrency());
-            if (!rateResult.isSuccess()) {
-                return ResultDO.buildFailResult(rateResult.getCode(), rateResult.getMsg());
-            }
+            // 2. Cross-domain exchange rate query — throws on failure, returns simple DTO
+            ExchangeRateResponseDTO rate = exchangeRateAdaptor.queryExchangeRate(requestDTO.getCurrency());
 
             // 3. Assemble calculation params
-            FeeCalculateParam param = FeePreCalculateAssembler.toParam(requestDTO, rateResult.getData());
+            FeeCalculateParam param = FeePreCalculateAssembler.toParam(requestDTO, rate);
 
-            // 4. Call DomainService
-            ResultDO<FeeCalculateResult> domainResult = feeCalculateDomainService.calculate(param);
-            if (!domainResult.isSuccess()) {
-                return ResultDO.buildFailResult(domainResult.getCode(), domainResult.getMsg());
-            }
+            // 4. Call DomainService — throws on failure, returns simple Result
+            FeeCalculateResult result = feeCalculateDomainService.calculate(param);
 
             // 5. Convert to response
-            return ResultDO.buildSuccessResult(FeePreCalculateAssembler.toResponseDTO(domainResult.getData()));
-        } catch (Exception e) {
+            return ResultDO.buildSuccessResult(FeePreCalculateAssembler.toResponseDTO(result));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid param, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+        } catch (BizException | AggregateException e) {
+            log.error("Fee pre-calculation failed, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+        } catch (Throwable e) {
             log.error("Fee pre-calculation failed, requestDTO: {}", requestDTO, e);
             return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
         }
@@ -413,30 +455,27 @@ public class SubsidyPreCalculateQueryAppServiceImpl implements SubsidyPreCalcula
     @Override
     public ResultDO<SubsidyPreCalculateResponseDTO> subsidyPreCalculate(SubsidyPreCalculateRequestDTO requestDTO) {
         try {
-            // 1. Self-validate
-            ResultDO checkResult = requestDTO.check();
-            if (!checkResult.isSuccess()) {
-                return ResultDO.buildFailResult(checkResult.getCode(), checkResult.getMsg());
-            }
+            // 1. Self-validate — void, throws IllegalArgumentException
+            requestDTO.check();
 
-            // 2. Cross-domain user level query
-            ResultDO<UserLevelResponseDTO> levelResult = userLevelAdaptor.queryUserLevel(requestDTO.getUserId());
-            if (!levelResult.isSuccess()) {
-                return ResultDO.buildFailResult(levelResult.getCode(), levelResult.getMsg());
-            }
+            // 2. Cross-domain user level query — throws on failure, returns simple DTO
+            UserLevelResponseDTO level = userLevelAdaptor.queryUserLevel(requestDTO.getUserId());
 
             // 3. Assemble params
-            SubsidyCalculateParam param = SubsidyPreCalculateAssembler.toParam(requestDTO, levelResult.getData());
+            SubsidyCalculateParam param = SubsidyPreCalculateAssembler.toParam(requestDTO, level);
 
-            // 4. Call DomainService (match rules + calculate)
-            ResultDO<SubsidyCalculateResult> domainResult = subsidyCalculateDomainService.calculate(param);
-            if (!domainResult.isSuccess()) {
-                return ResultDO.buildFailResult(domainResult.getCode(), domainResult.getMsg());
-            }
+            // 4. Call DomainService (match rules + calculate) — throws on failure, returns simple Result
+            SubsidyCalculateResult result = subsidyCalculateDomainService.calculate(param);
 
             // 5. Convert to response
-            return ResultDO.buildSuccessResult(SubsidyPreCalculateAssembler.toResponseDTO(domainResult.getData()));
-        } catch (Exception e) {
+            return ResultDO.buildSuccessResult(SubsidyPreCalculateAssembler.toResponseDTO(result));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid param, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+        } catch (BizException | AggregateException e) {
+            log.error("Subsidy pre-calculation failed, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+        } catch (Throwable e) {
             log.error("Subsidy pre-calculation failed, requestDTO: {}", requestDTO, e);
             return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
         }

@@ -80,27 +80,33 @@ Infrastructure layer may directly use middleware technologies but MUST NOT acces
 ### A.5 Exception Handling
 
 - Repository implementation exception handling must be consistent with Domain layer patterns
-- DB operation exceptions MUST be caught and converted to `ResultDO` — FORBIDDEN: throwing technical exceptions upward (e.g., `SQLException`)
+- DB operation exceptions MUST be caught and converted to `BizException` (阻断型) — FORBIDDEN: throwing technical exceptions upward (e.g., `SQLException`)
+- When the target data is not found, throw `BizException` (rather than returning null or ResultDO failure)
 - Logs must include key business parameters for troubleshooting
 
 ```java
-// CORRECT: Catch exception, return ResultDO
+// CORRECT: Catch technical exception, convert to BizException (阻断型)
 @Override
-public ResultDO<OrderAggregate> query(OrderQuery query) {
+public OrderAggregate query(OrderQuery query) {
     try {
         OrderPO po = orderMapper.selectById(query.getId());
-        return ResultDO.buildSuccessResult(OrderConverter.toAggregate(po));
+        if (po == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        return OrderConverter.toAggregate(po);
+    } catch (BizException e) {
+        throw e;
     } catch (Exception e) {
         log.error("Query order failed, query: {}", query, e);
-        return ResultDO.buildFailResult("DB_QUERY_ERROR", "Query order data error");
+        throw new BizException("DB_QUERY_ERROR", "Query order data error");
     }
 }
 
 // WRONG: Throw technical exception directly
 @Override
-public ResultDO<OrderAggregate> query(OrderQuery query) {
-    OrderPO po = orderMapper.selectById(query.getId()); // exception propagates directly
-    return ResultDO.buildSuccessResult(OrderConverter.toAggregate(po));
+public OrderAggregate query(OrderQuery query) {
+    OrderPO po = orderMapper.selectById(query.getId()); // technical exception propagates directly
+    return OrderConverter.toAggregate(po);
 }
 ```
 
@@ -199,7 +205,7 @@ public class OrderConverter {
     public static OrderAggregate toAggregate(OrderPO po) {
         if (po == null) return null;
         OrderAggregate aggregate = new OrderAggregate();
-        aggregate.setId(po.getId());
+        aggregate.setId(po.getId());  // ID backfill — framework persistence access (BaseAggregate.setId is protected)
         aggregate.setOrderNo(po.getOrderNo());
         aggregate.setBuyerId(po.getBuyerId());
         aggregate.setAmount(po.getAmount());
@@ -250,8 +256,8 @@ Must match domain Repository interface:
 
 | Method Type | Return | Notes |
 |------------|--------|-------|
-| save | `ResultDO<Void>` | Success or error code on failure |
-| query | `ResultDO<AggregateType>` | Aggregate or null |
+| save | `void` | Throws `BizException` on failure |
+| query | simple aggregate | Throws `BizException` if not found |
 | buildLock | `LevelLock` | Distributed lock object |
 
 ### B.3 Template
@@ -267,7 +273,7 @@ public class OrderRepositoryImpl implements OrderRepository {
     private OrderItemMapper orderItemMapper;
 
     @Override
-    public ResultDO<Void> save(OrderAggregate aggregate) {
+    public void save(OrderAggregate aggregate) {
         try {
             OrderPO orderPO = OrderConverter.toPO(aggregate);
 
@@ -277,7 +283,7 @@ public class OrderRepositoryImpl implements OrderRepository {
             } else {
                 int affectedRows = orderMapper.updateById(orderPO);
                 if (affectedRows == 0) {
-                    return ResultDO.buildFailResult("UPDATE_FAIL", "Update failed, data may have been modified");
+                    throw new BizException("UPDATE_FAIL", "Update failed, data may have been modified");
                 }
             }
 
@@ -293,11 +299,11 @@ public class OrderRepositoryImpl implements OrderRepository {
                     }
                 }
             }
-
-            return ResultDO.buildSuccessResult(null);
+        } catch (BizException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Save order failed, aggregateId: {}", aggregate.getId(), e);
-            return ResultDO.buildFailResult("DB_SAVE_ERROR", "Save order data error");
+            throw new BizException("DB_SAVE_ERROR", "Save order data error");
         }
     }
 
@@ -307,21 +313,23 @@ public class OrderRepositoryImpl implements OrderRepository {
     }
 
     @Override
-    public ResultDO<OrderAggregate> query(OrderQuery query) {
+    public OrderAggregate query(OrderQuery query) {
         try {
             OrderPO orderPO = orderMapper.selectById(query.getId());
             if (orderPO == null) {
-                return ResultDO.buildSuccessResult(null);
+                throw new BizException("ORDER_NOT_FOUND", "Order not found");
             }
             List<OrderItemPO> itemPOList = orderItemMapper.selectByOrderId(orderPO.getId());
 
             OrderAggregate aggregate = OrderConverter.toAggregate(orderPO);
             aggregate.setItems(OrderItemConverter.toEntityList(itemPOList));
 
-            return ResultDO.buildSuccessResult(aggregate);
+            return aggregate;
+        } catch (BizException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Query order failed, query: {}", query, e);
-            return ResultDO.buildFailResult("DB_QUERY_ERROR", "Query order data error");
+            throw new BizException("DB_QUERY_ERROR", "Query order data error");
         }
     }
 }
@@ -340,8 +348,8 @@ public class OrderRepositoryImpl implements OrderRepository {
 
 | Method Type | Return | Notes |
 |------------|--------|-------|
-| Single query | `ResultDO<AggregateType>` | `ResultDO.buildSuccessResult(null)` when not found |
-| List query | `ResultDO<List<AggregateType>>` | Empty list when no data |
+| Single query | simple aggregate | Throws `BizException` when not found |
+| List query | `List<AggregateType>` | Empty list when no data |
 
 ### C.3 Template
 ```java
@@ -353,27 +361,29 @@ public class OrderRepositoryImpl implements OrderRepository {
     private OrderMapper orderMapper;
 
     @Override
-    public ResultDO<OrderAggregate> getOrderDetail(Long orderId) {
+    public OrderAggregate getOrderDetail(Long orderId) {
         try {
             OrderPO po = orderMapper.selectById(orderId);
             if (po == null) {
-                return ResultDO.buildSuccessResult(null);
+                throw new BizException("ORDER_NOT_FOUND", "Order not found");
             }
-            return ResultDO.buildSuccessResult(OrderConverter.toAggregate(po));
+            return OrderConverter.toAggregate(po);
+        } catch (BizException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Query order detail failed, orderId: {}", orderId, e);
-            return ResultDO.buildFailResult("DB_QUERY_ERROR", "Query order detail error");
+            throw new BizException("DB_QUERY_ERROR", "Query order detail error");
         }
     }
 
     @Override
-    public ResultDO<List<OrderAggregate>> queryOrderList(QueryOrderListQuery query) {
+    public List<OrderAggregate> queryOrderList(QueryOrderListQuery query) {
         try {
             List<OrderPO> poList = orderMapper.selectByCondition(query);
-            return ResultDO.buildSuccessResult(OrderConverter.toAggregateList(poList));
+            return OrderConverter.toAggregateList(poList);
         } catch (Exception e) {
             log.error("Query order list failed, query: {}", query, e);
-            return ResultDO.buildFailResult("DB_QUERY_ERROR", "Query order list error");
+            throw new BizException("DB_QUERY_ERROR", "Query order list error");
         }
     }
 }
@@ -392,8 +402,8 @@ public class OrderRepositoryImpl implements OrderRepository {
 
 | Method Type | Return | Notes |
 |------------|--------|-------|
-| Query all rules | `ResultDO<List<RuleAggregateType>>` | All rule aggregate list |
-| Query rules by condition | `ResultDO<List<RuleAggregateType>>` | Filtered by business condition |
+| Query all rules | `List<RuleAggregateType>` | All rule aggregate list |
+| Query rules by condition | `List<RuleAggregateType>` | Filtered by business condition |
 
 ### D.3 Template
 ```java
@@ -407,12 +417,12 @@ public class BonusRuleRepositoryImpl implements BonusRuleRepository {
     private BonusRuleDetailMapper bonusRuleDetailMapper;
 
     @Override
-    public ResultDO<List<BonusRuleAggregate>> queryAllRule() {
+    public List<BonusRuleAggregate> queryAllRule() {
         try {
             // 1. Query all rule master table POs
             List<BonusRulePO> rulePOList = bonusRuleMapper.selectAll();
             if (CollectionUtils.isEmpty(rulePOList)) {
-                return ResultDO.buildSuccessResult(Collections.emptyList());
+                return Collections.emptyList();
             }
 
             // 2. Query rule detail POs
@@ -426,7 +436,7 @@ public class BonusRuleRepositoryImpl implements BonusRuleRepository {
                 .collect(Collectors.groupingBy(BonusRuleDetailPO::getRuleId));
 
             // 4. PO → Rule Aggregate (with nested Entity)
-            List<BonusRuleAggregate> aggregateList = rulePOList.stream()
+            return rulePOList.stream()
                 .map(rulePO -> {
                     BonusRuleAggregate aggregate = BonusRuleConverter.toAggregate(rulePO);
                     List<BonusRuleDetailPO> details = detailMap.getOrDefault(rulePO.getId(), Collections.emptyList());
@@ -434,11 +444,9 @@ public class BonusRuleRepositoryImpl implements BonusRuleRepository {
                     return aggregate;
                 })
                 .collect(Collectors.toList());
-
-            return ResultDO.buildSuccessResult(aggregateList);
         } catch (Exception e) {
             log.error("Query bonus rules failed", e);
-            return ResultDO.buildFailResult("DB_QUERY_ERROR", "Query bonus rule data error");
+            throw new BizException("DB_QUERY_ERROR", "Query bonus rule data error");
         }
     }
 }

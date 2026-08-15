@@ -78,8 +78,8 @@ adaptor/
   - Prefer primitive types when parameter is **fixed and stable** (business identifiers like order number, logistics number) for better reusability
   - Use RequestDTO directly when parameters are **many or composite** — no need to define separate DTO for Adaptor
 - **Return:** Follows two-mode exception handling (same as Domain, see `domain-layer.md` A.6):
-  - **阻断型:** Throw exception — caught by APP
-  - **分支型:** Return `ResultDO<T>` — APP extracts data for branching/fallback
+  - **阻断型 (preferred):** Return simple DTO, throw on failure — caught by APP
+  - **分支型:** Return `ResultDO<T>` — when APP needs failure data for branching/fallback
   - Generic is ResponseDTO containing only fields Application needs (anti-corruption simplification)
 
 ### A.5 Implementation Constraints
@@ -186,12 +186,13 @@ Read mode Input Adaptor calls `{AggregateName}QueryAppService extends Applicatio
 **Interface:**
 ```java
 public interface LogisticsAdaptor {
-    ResultDO<LogisticsInfoResponseDTO> queryLogistics(String logisticsNo);
+    LogisticsInfoResponseDTO queryLogistics(String logisticsNo);
 }
 ```
 
 **Implementation:**
 ```java
+@Slf4j
 @Component
 public class LogisticsAdaptorImpl implements LogisticsAdaptor {
 
@@ -202,10 +203,11 @@ public class LogisticsAdaptorImpl implements LogisticsAdaptor {
     public LogisticsInfoResponseDTO queryLogistics(String logisticsNo) {
         ThirdPartyLogisticsResponse response = logisticsClient.track(logisticsNo);
         return LogisticsConverter.toLogisticsInfoResponseDTO(response);
-        // Blocking error (network fail, timeout) → throw, caught by APP
     }
 }
 ```
+
+> 阻断型: external call failure (network error, timeout, 3rd-party error) throws — caught by APP. Only when APP needs failure data for branching/fallback does the interface return `ResultDO<T>`.
 
 ---
 
@@ -225,12 +227,13 @@ Pure calculate mode's business logic is fully in DomainService — typically no 
 **Interface example:**
 ```java
 public interface ExchangeRateAdaptor {
-    ResultDO<ExchangeRateResponseDTO> queryExchangeRate(String currency);
+    ExchangeRateResponseDTO queryExchangeRate(String currency);
 }
 ```
 
 **Implementation:**
 ```java
+@Slf4j
 @Component
 public class ExchangeRateAdaptorImpl implements ExchangeRateAdaptor {
 
@@ -241,7 +244,6 @@ public class ExchangeRateAdaptorImpl implements ExchangeRateAdaptor {
     public ExchangeRateResponseDTO queryExchangeRate(String currency) {
         ThirdPartyRateResponse response = exchangeRateClient.getRate(currency);
         return ExchangeRateConverter.toExchangeRateResponseDTO(response);
-        // Blocking error → throw, caught by APP
     }
 }
 ```
@@ -265,6 +267,6 @@ Rule data loaded via Repository from database or config center — typically no 
 **Interface example:**
 ```java
 public interface UserLevelAdaptor {
-    ResultDO<UserLevelResponseDTO> queryUserLevel(long userId);
+    UserLevelResponseDTO queryUserLevel(long userId);
 }
 ```

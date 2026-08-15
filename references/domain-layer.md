@@ -130,8 +130,8 @@ public class ConfirmPaymentParam extends BaseParam {
 | Feature | May contain rich (behavior) methods |
 
 **Use cases:**
-1. DomainService method return values
-2. Repository query return values (Application queries intra-domain data via Repository)
+1. DomainService method return values (Pure Calculate / Rule+Calculate modes)
+2. Result objects may contain rich behavior (computation, judgment methods)
 
 ```java
 @Data
@@ -149,20 +149,20 @@ public class FeeCalculateResult extends BaseResult {
 
 ### A.6 Exception Handling — Two Modes
 
-Domain and Adaptor choose exception mechanism based on **whether upstream needs the failure data**:
+Domain and Adaptor choose exception mechanism based on **whether the failure terminates the whole APP method**:
 
 | Mode | Mechanism | When | Example |
 |---|---|---|---|
-| **阻断型** | Throw exception | Event must stop, no data needed | 库存不足, 余额不够, 支付超时 |
-| **分支型** | Return `ResultDO<T>` | Upstream needs failure data for branching/fallback | 重复下单(需返回已有单号), 查无缓存(需降级走DB) |
+| **阻断型** | Throw exception, return simple type | Failure terminates the whole APP method, no data needed | 库存不足, 余额不够, 支付超时, 查询不到订单 |
+| **分支型** | Return `ResultDO<T>` | Failure needs special handling / continue via other logic | 重复下单(需返回已有单号), 查无缓存(需降级走DB) |
 
-**Key principle:** Throw when the operation can't proceed and no data is needed. Return ResultDO when the caller needs the payload to decide what to do next.
+**Key principle: prefer throwing.** When the operation fails and no data is needed to continue, throw (return simple type). Only return `ResultDO` when the caller needs the failure data to branch/fallback.
 
-**阻断型 — throw:**
+**阻断型 — throw, return simple type:**
 | Exception | Throw Location | Purpose |
 |-----------|---------------|---------|
 | `AggregateException` | Aggregate, Entity | Aggregate/entity internal validation failure |
-| `BizException` | DomainService | Business rule violation, pre-condition check failure |
+| `BizException` | DomainService, Repository | Business rule violation, pre-condition check failure, target not found |
 
 **分支型 — return ResultDO (with data):**
 | Scenario | Return | Upstream Action |
@@ -181,6 +181,7 @@ Domain and Adaptor choose exception mechanism based on **whether upstream needs 
 | Defined in | domain layer |
 | Implemented in | infrastructure layer |
 | Method naming | MUST use verbs (`save`, `query`, etc.) |
+| Return value | **阻断型 (preferred):** return simple aggregate/list, throw `BizException` on failure; **分支型:** return `ResultDO<T>` for APP branching/fallback |
 
 **Core responsibility:** Repository manages **intra-domain** DB, cache, and messaging. Repository does NOT depend on Adaptor and does NOT call external 3rd-party services.
 
@@ -244,21 +245,27 @@ public class SalePriceCalculateQueryAppServiceImpl implements SalePriceCalculate
 
     @Override
     public ResultDO<CalculateSalePriceResponseDTO> calculateSalePrice(CalculateSalePriceRequestDTO requestDTO) {
-        CalculateSalePriceParam param = new CalculateSalePriceParam();
-        param.setProductItems(SalePriceAssembler.toProductItems(requestDTO));
-        param.setExchangeRateProvider(currency -> {
-            ResultDO<ExchangeRateResponseDTO> rateResult = exchangeRateAdaptor.queryExchangeRate(currency);
-            if (!rateResult.isSuccess()) {
-                throw new RuntimeException("Exchange rate query failed: " + rateResult.getMsg());
-            }
-            return rateResult.getData().getRate();
-        });
+        try {
+            requestDTO.check();
 
-        ResultDO<CalculateSalePriceResult> domainResult = salePriceDomainService.calculateSalePrice(param);
-        if (!domainResult.isSuccess()) {
-            return ResultDO.buildFailResult(domainResult.getCode(), domainResult.getMsg());
+            // DTO → Param via Assembler
+            CalculateSalePriceParam param = SalePriceAssembler.toParam(requestDTO);
+            // Functional interface wired by Application layer
+            param.setExchangeRateProvider(currency ->
+                exchangeRateAdaptor.queryExchangeRate(currency).getRate());
+
+            CalculateSalePriceResult result = salePriceDomainService.calculateSalePrice(param);
+            return ResultDO.buildSuccessResult(SalePriceAssembler.toResponseDTO(result));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid param, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+        } catch (BizException | AggregateException e) {
+            log.error("Calculate sale price failed, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+        } catch (Throwable e) {
+            log.error("Calculate sale price failed, requestDTO: {}", requestDTO, e);
+            return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
         }
-        return ResultDO.buildSuccessResult(SalePriceAssembler.toResponseDTO(domainResult.getData()));
     }
 }
 ```
@@ -323,11 +330,8 @@ public class OrderDomainServiceImpl implements OrderDomainService {
                 throw new BizException("LOCK_FAIL", "Failed to acquire lock, please retry");
             }
 
-            // 2. Load aggregate
-            OrderAggregate orderAggregate = orderRepository.load(param.getOrderId());
-            if (orderAggregate == null) {
-                throw new BizException("ORDER_NOT_FOUND", "Order not found");
-            }
+            // 2. Load aggregate — returns simple aggregate, throws BizException if not found
+            OrderAggregate orderAggregate = orderRepository.query(new OrderQuery(param.getOrderId()));
 
             // 3. Execute business logic (via aggregate method)
             orderAggregate.confirmPayment(param);
@@ -561,13 +565,13 @@ public final class MoneyValue extends BaseValue {
 |------|------|
 | Method naming | Use verbs: `save`, `query` |
 | Parameter | Aggregate object (e.g., `OrderAggregate`) or query object |
-| Return | `ResultDO<Void>` (save) or `ResultDO<AggregateType>` (query) |
+| Return | `save` → `void` (throws on failure); `query` → simple aggregate (throws `BizException` if not found); 分支型 returns `ResultDO<T>` |
 
 ```java
 public interface OrderRepository extends AggregateRepository<OrderAggregate, Long> {
-    ResultDO<Void> save(OrderAggregate aggregate);
+    void save(OrderAggregate aggregate);
     LevelLock buildLock(String lockKey);
-    ResultDO<OrderAggregate> query(OrderQuery query);
+    OrderAggregate query(OrderQuery query);
 }
 ```
 
@@ -588,12 +592,12 @@ Read mode is **pure query** — no business logic, only data retrieval and forma
 |------|------|---------|
 | Method naming | Verbs expressing clear query intent, avoid abstract words | `queryOrderList`, `getOrderDetail` |
 | Parameter | `{MethodName}Query` or primitive type | `QueryOrderListQuery`, `Long` |
-| Return | `ResultDO<Aggregate>` or `ResultDO<List<Aggregate>>` | `ResultDO<OrderAggregate>`, `ResultDO<List<OrderAggregate>>` |
+| Return | Simple aggregate / list, throws `BizException` if not found | `OrderAggregate`, `List<OrderAggregate>` |
 
 ```java
 public interface OrderRepository extends AggregateRepository<OrderAggregate, Long> {
-    ResultDO<OrderAggregate> getOrderDetail(Long orderId);
-    ResultDO<List<OrderAggregate>> queryOrderList(QueryOrderListQuery query);
+    OrderAggregate getOrderDetail(Long orderId);
+    List<OrderAggregate> queryOrderList(QueryOrderListQuery query);
 }
 ```
 

@@ -34,7 +34,7 @@ This document defines all base classes, interfaces, and core types referenced th
 ## 1. ResultDO\<T\> — Universal Result Wrapper
 
 **Location:** `model` module (shared across all layers)
-**Purpose:** Standardized operation result wrapper. Every method across all layers returns `ResultDO<T>` — no exceptions are thrown across layer boundaries.
+**Purpose:** Standardized operation result wrapper. Application layer public methods return `ResultDO<T>` uniformly; 分支型 methods (which hand failure data to the upstream for branching/fallback) also return `ResultDO<T>`. 阻断型 failures throw exceptions — "no exceptions across layer boundaries" refers to APP never throwing to Adaptor.
 
 ```java
 public class ResultDO<T> implements Serializable {
@@ -52,6 +52,9 @@ public class ResultDO<T> implements Serializable {
 
     /** Create failure result with error code and message */
     public static <T> ResultDO<T> buildFailResult(String code, String msg) { ... }
+
+    /** Create failure result with error code, message, and failure data (分支型) */
+    public static <T> ResultDO<T> buildFailResult(String code, String msg, T data) { ... }
 
     /** Create failure result from another ResultDO's error info */
     public static <T> ResultDO<T> buildFailResult(String msg) { ... }
@@ -74,18 +77,17 @@ return ResultDO.buildSuccessResult(null);
 // Failure
 return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order does not exist");
 
-// Propagate upstream error
-if (!domainResult.isSuccess()) {
-    return ResultDO.buildFailResult(domainResult.getCode(), domainResult.getMsg());
-}
+// 分支型 failure: carries data for upstream fallback/branching
+return ResultDO.buildFailResult("DUPLICATE", "Order exists", existingOrder);
 ```
 
 **Rules:**
 - All Application layer public methods MUST return `ResultDO<T>`
-- All DomainService methods MUST return `ResultDO<T>`
-- All Repository methods MUST return `ResultDO<T>`
-- Exceptions MUST be caught internally and converted to `ResultDO` failure — never propagate across layer boundaries
+- DomainService: 阻断型 methods return simple types or `void` and throw on failure; 分支型 methods return `ResultDO<T>`
+- Repository/Adaptor: 阻断型 methods return simple aggregate/DTO and throw `BizException` on failure; 分支型 methods return `ResultDO<T>`
+- Blocking exceptions propagate from Domain/outAdaptor to the APP layer — APP catches and converts to `ResultDO` failure, never throws to Adaptor
 - Input Adaptors convert `ResultDO` to protocol-specific responses (HTTP JSON, RPC, etc.)
+- **Decision principle: prefer throwing (阻断型).** Only when the failure must still continue via fallback/branching does the method return `ResultDO` (分支型).
 
 ---
 
@@ -155,7 +157,8 @@ public abstract class BaseAggregate<ID extends Serializable> implements Serializ
     // Domain event collection, version tracking, etc.
 
     public ID getId() { ... }
-    public void setId(ID id) { ... }
+    // protected: only framework persistence backfills IDs — external code must not mutate identity
+    protected void setId(ID id) { ... }
 }
 ```
 
@@ -172,7 +175,8 @@ public abstract class BaseEntity<ID extends Serializable> implements Serializabl
     // Version tracking, etc.
 
     public ID getId() { ... }
-    public void setId(ID id) { ... }
+    // protected: only framework persistence backfills IDs — external code must not mutate identity
+    protected void setId(ID id) { ... }
 }
 ```
 
@@ -350,7 +354,7 @@ public interface AggregateRepository<T extends BaseAggregate<ID>, ID extends Ser
 
 ### 5.1 ApplicationCmdService
 
-**Location:** application layer base package
+**Location:** `client` module base package — shared by client-layer service interfaces and application-layer implementations
 **Purpose:** Marker interface for command (write) application services.
 
 ```java
@@ -363,7 +367,7 @@ public interface ApplicationCmdService {
 
 ### 5.2 ApplicationQueryService
 
-**Location:** application layer base package
+**Location:** `client` module base package — shared by client-layer service interfaces and application-layer implementations
 **Purpose:** Marker interface for query (read) application services.
 
 ```java
@@ -402,7 +406,7 @@ public abstract class BaseDTO implements Serializable {
 ### 7.1 AggregateException
 
 **Location:** `domain` layer
-**Purpose:** Thrown when aggregate root or entity internal validation fails. Caught by DomainService and converted to `ResultDO` failure.
+**Purpose:** Thrown when aggregate root or entity internal validation fails. Propagates to the APP layer, which catches it and converts to `ResultDO` failure.
 
 ```java
 public class AggregateException extends RuntimeException {
@@ -435,7 +439,7 @@ if (!this.status.canCancel()) {
 ### 7.2 BizException
 
 **Location:** `domain` layer
-**Purpose:** Thrown when domain service business logic validation fails. Caught by DomainService itself and converted to `ResultDO` failure.
+**Purpose:** Thrown when domain service business logic validation fails, or when Repository fails to find the target data. Propagates to the APP layer (DomainService must NOT catch it), which converts to `ResultDO` failure.
 
 ```java
 public class BizException extends RuntimeException {
@@ -453,18 +457,21 @@ public class BizException extends RuntimeException {
 }
 ```
 
-**Exception handling pattern in DomainService:**
+**Exception handling pattern in APP (exception boundary):**
 ```java
 try {
-    // Business logic...
-} catch (BizException e) {
-    log.error("Business validation failed, param: {}", param, e);
-    return ResultDO.buildFailResult(e.getCode(), e.getMsg());
-} catch (AggregateException e) {
-    log.error("Aggregate validation failed, param: {}", param, e);
+    requestDTO.check();
+    CreateOrderParam param = OrderAssembler.toParam(requestDTO);
+    orderDomainService.confirmPayment(param);
+    return ResultDO.buildSuccessResult(responseDTO);
+} catch (IllegalArgumentException e) {
+    log.error("Invalid param, requestDTO: {}", requestDTO, e);
+    return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+} catch (BizException | AggregateException e) {
+    log.error("Business error, requestDTO: {}", requestDTO, e);
     return ResultDO.buildFailResult(e.getCode(), e.getMsg());
 } catch (Throwable e) {
-    log.error("System error, param: {}", param, e);
+    log.error("System error, requestDTO: {}", requestDTO, e);
     return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
 }
 ```
@@ -498,7 +505,7 @@ public class LevelLock {
 LevelLock levelLock = orderRepository.buildLock("order:confirmPayment:" + param.getOrderId());
 try {
     if (!levelLock.tryLock()) {
-        return ResultDO.buildFailResult("LOCK_FAIL", "Failed to acquire lock, please retry");
+        throw new BizException("LOCK_FAIL", "Failed to acquire lock, please retry");
     }
     // ... business logic ...
 } finally {

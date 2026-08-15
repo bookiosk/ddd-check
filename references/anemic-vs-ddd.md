@@ -155,6 +155,8 @@ public class OrderAggregate extends BaseAggregate<Long> {
     private Field<Long> amount;
     private OrderStatusEnum status;
     private List<OrderItemEntity> items;
+    private String paymentChannel;
+    private Date gmtCreate;
 
     /** Write method: create order — business rules HERE */
     public void create(CreateOrderParam param) {
@@ -207,33 +209,26 @@ public class OrderDomainServiceImpl implements OrderDomainService {
     private OrderRepository orderRepository;
 
     @Override
-    public ResultDO<OrderAggregate> createOrder(CreateOrderParam param) {
+    public OrderAggregate createOrder(CreateOrderParam param) {
         LevelLock lock = orderRepository.buildLock("order:create:" + param.getBuyerId());
         try {
             if (!lock.tryLock()) {
-                return ResultDO.buildFailResult("LOCK_FAIL", "Failed to acquire lock");
+                throw new BizException("LOCK_FAIL", "Failed to acquire lock");
             }
 
             // 1. Create aggregate — business rules inside aggregate.create()
+            //    AggregateException propagates to APP layer (DomainService does NOT catch)
             OrderAggregate order = new OrderAggregate();
             order.create(param);
 
-            // 2. Persist — Repository handles all DB details
-            ResultDO<Void> saveResult = orderRepository.save(order);
-            if (!saveResult.isSuccess()) {
-                return ResultDO.buildFailResult(saveResult.getMsg());
-            }
+            // 2. Persist — Repository handles all DB details, throws on failure
+            orderRepository.save(order);
 
-            return ResultDO.buildSuccessResult(order);
-        } catch (AggregateException e) {
-            log.error("Create order aggregate error, param: {}", param, e);
-            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
-        } catch (Throwable e) {
-            log.error("Create order system error, param: {}", param, e);
-            return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
+            return order;
         } finally {
             lock.unlock();
         }
+        // No catch — blocking exceptions propagate to APP layer
     }
 }
 ```
@@ -256,37 +251,31 @@ public class OrderAppServiceImpl implements OrderAppService {
     @Override
     public ResultDO<CreateOrderResponseDTO> createOrderOnline(CreateOrderOnlineRequestDTO req) {
         try {
-            // 1. Self-validation
-            ResultDO checkResult = req.check();
-            if (!checkResult.isSuccess()) {
-                return ResultDO.buildFailResult(checkResult.getCode(), checkResult.getMsg());
-            }
+            // 1. Self-validation — void, throws on failure
+            req.check();
 
-            // 2. Scene-specific pre-checks (Adaptor, not business rules)
-            ResultDO<InventoryCheckResponseDTO> invResult = inventoryAdaptor.checkInventory(req.getProductId(), req.getQuantity());
-            if (!invResult.isSuccess()) {
-                return ResultDO.buildFailResult(invResult.getCode(), invResult.getMsg());
-            }
-            if (!invResult.getData().isSufficient()) {
+            // 2. Scene-specific pre-checks (Adaptor, not business rules) — returns simple DTO, throws on failure
+            InventoryCheckResponseDTO inv = inventoryAdaptor.checkInventory(req.getProductId(), req.getQuantity());
+            if (!inv.isSufficient()) {
                 return ResultDO.buildFailResult("INVENTORY_NOT_ENOUGH", "Insufficient inventory");
             }
 
-            ResultDO<PriceCheckResponseDTO> priceResult = priceAdaptor.checkPrice(req.getProductId(), req.getPrice());
-            if (!priceResult.isSuccess()) {
-                return ResultDO.buildFailResult(priceResult.getCode(), priceResult.getMsg());
-            }
-            if (!priceResult.getData().isValid()) {
+            PriceCheckResponseDTO price = priceAdaptor.checkPrice(req.getProductId(), req.getPrice());
+            if (!price.isValid()) {
                 return ResultDO.buildFailResult("PRICE_INVALID", "Price changed");
             }
 
-            // 3. Call domain service — business rules are in the aggregate
+            // 3. Call domain service — business rules are in the aggregate — returns simple aggregate, throws on failure
             CreateOrderParam param = OrderAssembler.toParam(req);
-            ResultDO<OrderAggregate> domainResult = orderDomainService.createOrder(param);
-            if (!domainResult.isSuccess()) {
-                return ResultDO.buildFailResult(domainResult.getCode(), domainResult.getMsg());
-            }
+            OrderAggregate order = orderDomainService.createOrder(param);
 
-            return ResultDO.buildSuccessResult(OrderAssembler.toResponseDTO(domainResult.getData()));
+            return ResultDO.buildSuccessResult(OrderAssembler.toResponseDTO(order));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid param, req: {}", req, e);
+            return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+        } catch (BizException | AggregateException e) {
+            log.error("Create order business error, req: {}", req, e);
+            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
         } catch (Exception e) {
             log.error("Create order online error, req: {}", req, e);
             return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
@@ -297,19 +286,19 @@ public class OrderAppServiceImpl implements OrderAppService {
     @Override
     public ResultDO<CreateOrderResponseDTO> createOrderManual(CreateOrderManualRequestDTO req) {
         try {
-            ResultDO checkResult = req.check();
-            if (!checkResult.isSuccess()) {
-                return ResultDO.buildFailResult(checkResult.getCode(), checkResult.getMsg());
-            }
+            req.check();
 
             // Same domain service, different scene orchestration
             CreateOrderParam param = OrderAssembler.toParam(req);
-            ResultDO<OrderAggregate> domainResult = orderDomainService.createOrder(param);
-            if (!domainResult.isSuccess()) {
-                return ResultDO.buildFailResult(domainResult.getCode(), domainResult.getMsg());
-            }
+            OrderAggregate order = orderDomainService.createOrder(param);
 
-            return ResultDO.buildSuccessResult(OrderAssembler.toResponseDTO(domainResult.getData()));
+            return ResultDO.buildSuccessResult(OrderAssembler.toResponseDTO(order));
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid param, req: {}", req, e);
+            return ResultDO.buildFailResult("PARAM_ERROR", e.getMessage());
+        } catch (BizException | AggregateException e) {
+            log.error("Create order business error, req: {}", req, e);
+            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
         } catch (Exception e) {
             log.error("Create order manual error, req: {}", req, e);
             return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");

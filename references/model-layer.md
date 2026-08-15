@@ -28,6 +28,7 @@ Model layer is **internal shared** — only for project-internal module use.
 | Cross-module enums | Enums shared across multiple business modules (e.g., `DomesticIntlEnum`) |
 | Common business concepts | Business objects not belonging to a specific domain but used by multiple domains |
 | Shared constants | Constant definitions shared across modules |
+| Application-internal DTOs | DTOs used only within Application layer flow (not exposed externally), placed in the `model` module — NOT in an `application/model/` sub-package |
 
 ## 4. Code Templates
 

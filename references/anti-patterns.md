@@ -72,7 +72,7 @@ public FeeCalculateResult calculateFee(FeeCalculateParam param) {
 }
 ```
 
-**Exception:** Design patterns ARE allowed in Adaptor layer for technical routing (channel-based, protocol-based). See AP-A-01.
+**Exception:** Design patterns ARE allowed in Adaptor layer for technical routing (channel-based, protocol-based). See `adaptor-layer.md` Section A.6.
 
 ---
 
@@ -187,10 +187,11 @@ public void backfillFees(FeeInfo feeInfo) { ... }
 // Blocking error should throw, not return ResultDO
 public ResultDO<Void> confirmPayment(ConfirmPaymentParam param) {
     try {
-        OrderAggregate order = orderRepository.load(param.getOrderId());
-        if (order == null) {
+        ResultDO<OrderAggregate> loadResult = orderRepository.query(new OrderQuery(param.getOrderId()));
+        if (loadResult.getData() == null) {
             return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");  // WRONG
         }
+        OrderAggregate order = loadResult.getData();
         order.confirmPayment(param);
         orderRepository.save(order);
         return ResultDO.buildSuccessResult(null);
@@ -208,10 +209,8 @@ public void confirmPayment(ConfirmPaymentParam param) {
         if (!lock.tryLock()) {
             throw new BizException("LOCK_FAIL", "Failed to acquire lock");
         }
-        OrderAggregate order = orderRepository.load(param.getOrderId());
-        if (order == null) {
-            throw new BizException("ORDER_NOT_FOUND", "Order not found");
-        }
+        // Repository returns simple aggregate, throws BizException if not found
+        OrderAggregate order = orderRepository.query(new OrderQuery(param.getOrderId()));
         order.confirmPayment(param);
         orderRepository.save(order);
     } finally {
@@ -319,7 +318,7 @@ public class OrderAppServiceImpl implements OrderAppService {
 | | |
 |---|---|
 | **Severity** | MEDIUM |
-| **Rule** | Parameter validation MUST be via `requestDTO.check()` returning `ResultDO` |
+| **Rule** | Parameter validation MUST be via `requestDTO.check()` — a `void` method that throws `IllegalArgumentException` on failure |
 
 **Wrong:**
 ```java
@@ -335,7 +334,7 @@ public ResultDO<CreateOrderResponseDTO> createOrder(CreateOrderRequestDTO req) {
 }
 ```
 
-**Correct:** Put validation in `CreateOrderRequestDTO.check()` method. AppService just calls `requestDTO.check()`.
+**Correct:** Put validation in `CreateOrderRequestDTO.check()` method. AppService just calls `requestDTO.check()`, and catches `IllegalArgumentException` in the catch block to convert to `PARAM_ERROR`.
 
 ---
 
@@ -440,7 +439,7 @@ public interface LogisticsAdaptor {
 ```java
 // Interface expresses Application's business need
 public interface LogisticsAdaptor {
-    ResultDO<LogisticsInfoResponseDTO> queryLogistics(String logisticsNo);
+    LogisticsInfoResponseDTO queryLogistics(String logisticsNo);
 }
 ```
 
@@ -458,13 +457,13 @@ public interface LogisticsAdaptor {
 @Component
 public class LogisticsAdaptorImpl implements LogisticsAdaptor {
     @Override
-    public ResultDO<LogisticsInfoResponseDTO> queryLogistics(String logisticsNo) {
+    public LogisticsInfoResponseDTO queryLogistics(String logisticsNo) {
         ThirdPartyResponse response = client.track(logisticsNo);
         // Business judgment in Adaptor!
         if (response.getStatus().equals("DELIVERED") && response.getDaysSinceDelivery() > 7) {
             response.setStatus("ARCHIVED");
         }
-        return ResultDO.buildSuccessResult(LogisticsConverter.toDTO(response));
+        return LogisticsConverter.toDTO(response);
     }
 }
 ```
@@ -487,10 +486,10 @@ public class LogisticsAdaptorImpl implements LogisticsAdaptor {
 @Component
 public class OrderRepositoryImpl implements OrderRepository {
     @Override
-    public ResultDO<Void> save(OrderAggregate aggregate) {
+    public void save(OrderAggregate aggregate) {
         // Business validation in Repository!
         if (aggregate.getAmount() < 0) {
-            return ResultDO.buildFailResult("AMOUNT_INVALID", "Amount cannot be negative");
+            throw new BizException("AMOUNT_INVALID", "Amount cannot be negative");
         }
         if (aggregate.getStatus() == OrderStatus.CANCELLED) {
             // Business rule in wrong layer
@@ -541,25 +540,30 @@ public class OrderConverter {
 | | |
 |---|---|
 | **Severity** | HIGH |
-| **Rule** | Catch exceptions in RepositoryImpl, convert to `ResultDO` failure |
+| **Rule** | Catch technical exceptions in RepositoryImpl, convert to `BizException` (阻断型) — do NOT propagate technical exceptions directly |
 
 **Wrong:**
 ```java
-public ResultDO<OrderAggregate> query(OrderQuery query) {
+public OrderAggregate query(OrderQuery query) {
     OrderPO po = orderMapper.selectById(query.getId());  // SQLException propagates!
-    return ResultDO.buildSuccessResult(OrderConverter.toAggregate(po));
+    return OrderConverter.toAggregate(po);
 }
 ```
 
 **Correct:**
 ```java
-public ResultDO<OrderAggregate> query(OrderQuery query) {
+public OrderAggregate query(OrderQuery query) {
     try {
         OrderPO po = orderMapper.selectById(query.getId());
-        return ResultDO.buildSuccessResult(OrderConverter.toAggregate(po));
+        if (po == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        return OrderConverter.toAggregate(po);
+    } catch (BizException e) {
+        throw e;
     } catch (Exception e) {
         log.error("Query order failed, query: {}", query, e);
-        return ResultDO.buildFailResult("DB_QUERY_ERROR", "Query order data error");
+        throw new BizException("DB_QUERY_ERROR", "Query order data error");
     }
 }
 ```
@@ -601,7 +605,7 @@ public class OrderRepositoryImpl implements OrderRepository {
     private ThirdPartyPaymentClient paymentClient;  // should be in Adaptor!
 
     @Override
-    public ResultDO<Void> save(OrderAggregate aggregate) {
+    public void save(OrderAggregate aggregate) {
         paymentClient.verify(aggregate.getPaymentId());  // wrong layer!
         ...
     }

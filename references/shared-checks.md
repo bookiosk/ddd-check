@@ -18,26 +18,31 @@ Severity levels and layer-by-layer checklists referenced by both `ddd-check-incr
 - [ ] All value objects extend `BaseValue`
 - [ ] `setId()` is `protected`, not `public`
 - [ ] No infrastructure imports (no Mapper, no JPA, no SQL)
-- [ ] Repository interfaces extend `AggregateRepository<T, ID, Q>`
-- [ ] External calls go through `GatewayI` interfaces
+- [ ] Repository interfaces extend `AggregateRepository<T, ID>`
+- [ ] External calls go through Adaptor interfaces
 - [ ] Aggregate methods = business behaviors, not CRUD
 - [ ] Design patterns FORBIDDEN in domain (Strategy, Factory, etc.)
-- [ ] Blocking mode (阻断型) throws exception, branching mode (分支型) returns ResultDO
+- [ ] Blocking mode (阻断型, failure terminates) throws and returns simple type; branching mode (分支型, fallback needed) returns ResultDO
 
 ## Application Layer Checklist
 
 - [ ] Cmd services extend `ApplicationCmdService`
 - [ ] Qry services extend `ApplicationQueryService`
-- [ ] APP catches Domain/Adaptor exceptions, converts to ResultDO
+- [ ] Parameter validation via `requestDTO.check()` (void, throws `IllegalArgumentException`), not written in AppService
+- [ ] APP method body — all business ops in try block except logging; catch only logs + converts
+- [ ] APP catches Domain/Adaptor/Repository exceptions, converts to ResultDO
 - [ ] APP never throws exceptions to Adaptor
+- [ ] Input/output use concrete `{MethodName}RequestDTO`/`{MethodName}ResponseDTO` subclasses defined in `client`
 
 ## Infrastructure Layer Checklist
 
 - [ ] Repository impls in correct package
+- [ ] Repository methods return simple aggregate/list, throw `BizException` on failure (ResultDO only for branching)
+- [ ] RepositoryImpl catches technical exceptions, converts to `BizException`, does not throw SQLException directly
 - [ ] PO classes separate from domain objects
 - [ ] Converter/Assembler between PO and domain
 - [ ] `LevelLock` implementations are concrete (extend abstract class)
-- [ ] All `GatewayI` implementations here, not in domain
+- [ ] All Adaptor implementations here, not in domain
 
 ## Client Layer Checklist
 

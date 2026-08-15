@@ -38,7 +38,7 @@ Project: order-system | Files: 87 | Layers: 4 | Date: 2026-07-21
 | Order.java | CRITICAL | setId public | Change to protected |
 | Order.java | HIGH | Constructor validates nothing | Add param validation in create() factory |
 | Payment.java | MEDIUM | Missing JavaDoc on pay() | Add /** Processes payment and updates order status */ |
-| RefundService.java | CRITICAL | Imports JdbcTemplate | Move to Infrastructure, expose via GatewayI |
+| RefundService.java | CRITICAL | Imports JdbcTemplate | Move to Infrastructure, expose via Repository interface |
 
 ### Application Layer (31 files, 3 violations)
 | File | Severity | Issue | Fix |

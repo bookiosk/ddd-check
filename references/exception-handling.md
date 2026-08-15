@@ -65,12 +65,9 @@ Domain / outAdaptor          APP (边界)                   inAdaptor
 ### 阻断型: Order Confirm
 
 ```java
-// Domain — throws on blocking error
+// Domain — throws on failure (阻断型), Repository returns simple aggregate
 public void confirmPayment(ConfirmPaymentParam param) {
-    OrderAggregate order = orderRepository.load(param.getOrderId());
-    if (order == null) {
-        throw new BizException("ORDER_NOT_FOUND", "Order not found");
-    }
+    OrderAggregate order = orderRepository.query(new OrderQuery(param.getOrderId()));
     order.confirmPayment(param);  // may throw AggregateException
     orderRepository.save(order);
 }
@@ -85,6 +82,8 @@ public ResultDO<Void> confirmPayment(ConfirmPaymentRequestDTO req) {
     }
 }
 ```
+
+> Repository's `query` throws `BizException("ORDER_NOT_FOUND", ...)` when the aggregate is not found — not returning `ResultDO`. Only when a failure needs special handling (continue via other logic) does it return `ResultDO` (分支型).
 
 ### 分支型: Duplicate Check
 
@@ -113,10 +112,10 @@ public ResultDO<CreateOrderResponseDTO> createOrder(CreateOrderRequestDTO req) {
 ## Decision Flow
 
 ```
-Domain/Adaptor needs to signal failure
-├─ Upstream needs failure data?
-│   ├─ Yes → return ResultDO.fail(code, msg, data)  [分支型]
-│   └─ No  → throw BizException / AggregateException [阻断型]
+Domain/Adaptor/Repository needs to signal failure
+├─ Does the failure need special handling / continue the normal chain via other logic?
+│   ├─ No (failure terminates the whole APP method) → throw exception (阻断型)
+│   └─ Yes (needs data for branching/fallback)      → return ResultDO.fail(code, msg, data) (分支型)
 │
 APP receives:
 ├─ Exception caught → ResultDO.fail(code, msg)
@@ -124,11 +123,14 @@ APP receives:
 └─ ResultDO.success() → continue
 ```
 
+> **Principle: prefer throwing.** Only when throwing would produce incorrect logic (still need to continue the normal chain after failure) should you return `ResultDO`.
+
 ## Anti-Patterns
 
 | Wrong | Why | Right |
 |---|---|---|
 | DomainService catches BizException, returns ResultDO.fail | 阻断型错误被吞掉, 堆栈丢失 | Let propagate to APP |
+| Repository/Adaptor returns ResultDO.fail for "failure terminates the method" cases | Upstream is forced to check isSuccess at every level, verbose | Throw when failure terminates; return ResultDO only for branching/fallback |
 | DomainService returns ResultDO.fail with no data | 上游拿不到信息, 只能看 msg 判断 | Use throw if no data needed |
 | APP throws exception to Adaptor | Adaptor 需要理解业务异常类型 | APP always returns ResultDO |
 | Adaptor catches and wraps all exceptions | 上游失去错误上下文 | Throw on blocking, ResultDO for branch |

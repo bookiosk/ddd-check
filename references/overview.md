@@ -10,7 +10,6 @@
   - [3.1 Mode Comparison](#31-mode-comparison)
   - [3.2 Mode Selection Decision Tree](#32-mode-selection-decision-tree)
   - [3.3 Call Chain Sequence Diagrams](#33-call-chain-sequence-diagrams)
-  - [3.4 Deprecated (text-only call chains)](#34-deprecated-text-only-call-chains)
 - [4. Spec File Usage by Mode](#4-spec-file-usage-by-mode)
   - [4.1 Write Mode — Required Specs](#41-write-mode-—-required-specs)
   - [4.2 Read Mode — Required Specs](#42-read-mode-—-required-specs)
@@ -213,9 +212,9 @@ sequenceDiagram
     I->>A: RequestDTO
     A->>A: requestDTO.check()
     A->>O: validateInventory(productId, qty)
-    O-->>A: ResultDO<InventoryDTO>
+    O-->>A: InventoryDTO
     A->>O: checkPrice(productId, price)
-    O-->>A: ResultDO<PriceDTO>
+    O-->>A: PriceDTO
     A->>A: Assembler.toParam()
     A->>D: createOrder(param)
     D->>R: buildLock(key)
@@ -224,18 +223,19 @@ sequenceDiagram
     R->>DB: SELECT
     DB-->>R: PO
     R->>R: Converter.toAggregate()
-    R-->>D: ResultDO<Aggregate>
+    R-->>D: Aggregate
     D->>Agg: confirmPayment(param)
     Agg->>Agg: validate + modify state
     D->>R: save(aggregate)
     R->>R: Converter.toPO()
     R->>DB: INSERT/UPDATE
-    R-->>D: ResultDO<Void>
     D->>D: lock.unlock()
-    D-->>A: ResultDO<Aggregate>
+    D-->>A: Aggregate
     A->>A: Assembler.toResponseDTO()
     A-->>I: ResultDO<ResponseDTO>
 ```
+
+> 阻断型: Adaptor, Repository, and DomainService all return simple types and throw on failure, caught and converted to `ResultDO` by APP's try/catch.
 
 **Read Mode (hybrid — intra-domain + cross-domain):**
 
@@ -254,12 +254,12 @@ sequenceDiagram
     R->>DB: SELECT
     DB-->>R: PO
     R->>R: Converter.toAggregate()
-    R-->>Q: ResultDO<Aggregate>
+    R-->>Q: Aggregate
     Q->>O: queryLogistics(logisticsNo)
     O->>Ext: API call
     Ext-->>O: 3rd-party response
     O->>O: Converter (anti-corruption)
-    O-->>Q: ResultDO<LogisticsDTO>
+    O-->>Q: LogisticsDTO
     Q->>Q: Assembler.assemble(aggregate, logistics)
     Q-->>I: ResultDO<ResponseDTO>
 ```
@@ -279,11 +279,11 @@ sequenceDiagram
     Q->>O: queryExchangeRate(currency)
     O->>Ext: API call
     Ext-->>O: 3rd-party response
-    O-->>Q: ResultDO<RateDTO>
+    O-->>Q: RateDTO
     Q->>Q: Assembler.toParam()
     Q->>D: calculate(param)
     D->>D: pure computation (stateless)
-    D-->>Q: ResultDO<CalculateResult>
+    D-->>Q: CalculateResult
     Q->>Q: Assembler.toResponseDTO()
     Q-->>I: ResultDO<ResponseDTO>
 ```
@@ -307,7 +307,7 @@ sequenceDiagram
     R->>DB: SELECT
     DB-->>R: PO list
     R->>R: Converter (PO→Aggregate)
-    R-->>D: ResultDO<List<RuleAggregate>>
+    R-->>D: List<RuleAggregate>
     D->>D: sort by priority
     loop For each rule aggregate
         D->>Agg: matchRule(items, param)
@@ -315,49 +315,47 @@ sequenceDiagram
         D->>Agg: calculateBonus(matched, param)
         Agg-->>D: List<CalculateResult>
     end
-    D-->>Q: ResultDO<List<CalculateResult>>
+    D-->>Q: List<CalculateResult>
     Q->>Q: Assembler.toResponseDTO()
     Q-->>I: ResultDO<ResponseDTO>
 ```
-
-### 3.4 Deprecated (text-only call chains)
 
 ---
 
 ## 4. Spec File Usage by Mode
 
 ### 4.1 Write Mode — Required Specs
-1. `ddd-domain-layer.md` → Base + Write mode Domain spec
-2. `ddd-application-layer.md` → Base + Write mode Application spec
-3. `ddd-adaptor-layer.md` → Base + Write mode Adaptor spec
-4. `ddd-infrastructure-layer.md` → Base + Write mode Infrastructure spec
-5. `ddd-client-layer.md` → Client layer spec
-6. `ddd-model-layer.md` → Model layer spec
+1. `domain-layer.md` → Base + Write mode Domain spec
+2. `application-layer.md` → Base + Write mode Application spec
+3. `adaptor-layer.md` → Base + Write mode Adaptor spec
+4. `infrastructure-layer.md` → Base + Write mode Infrastructure spec
+5. `client-layer.md` → Client layer spec
+6. `model-layer.md` → Model layer spec
 
 ### 4.2 Read Mode — Required Specs
-1. `ddd-domain-layer.md` → Base + Read mode Domain spec
-2. `ddd-application-layer.md` → Base + Read mode Application spec
-3. `ddd-adaptor-layer.md` → Base + Read mode Adaptor spec
-4. `ddd-infrastructure-layer.md` → Base + Read mode Infrastructure spec
-5. `ddd-client-layer.md` → Client layer spec
-6. `ddd-model-layer.md` → Model layer spec
+1. `domain-layer.md` → Base + Read mode Domain spec
+2. `application-layer.md` → Base + Read mode Application spec
+3. `adaptor-layer.md` → Base + Read mode Adaptor spec
+4. `infrastructure-layer.md` → Base + Read mode Infrastructure spec
+5. `client-layer.md` → Client layer spec
+6. `model-layer.md` → Model layer spec
 
 ### 4.3 Pure Calculate Mode — Required Specs
-1. `ddd-domain-layer.md` → Base + Pure Calculate mode Domain spec
-2. `ddd-application-layer.md` → Base + Pure Calculate mode Application spec
-3. `ddd-adaptor-layer.md` → Base + Pure Calculate mode Adaptor spec
-4. `ddd-client-layer.md` → Client layer spec
-5. `ddd-model-layer.md` → Model layer spec
+1. `domain-layer.md` → Base + Pure Calculate mode Domain spec
+2. `application-layer.md` → Base + Pure Calculate mode Application spec
+3. `adaptor-layer.md` → Base + Pure Calculate mode Adaptor spec
+4. `client-layer.md` → Client layer spec
+5. `model-layer.md` → Model layer spec
 
 > Pure Calculate mode does NOT require Infrastructure layer — no aggregates, no entities, no persistence.
 
 ### 4.4 Rule+Calculate Mode — Required Specs
-1. `ddd-domain-layer.md` → Base + Rule+Calculate mode Domain spec
-2. `ddd-application-layer.md` → Base + Rule+Calculate mode Application spec
-3. `ddd-adaptor-layer.md` → Base spec
-4. `ddd-infrastructure-layer.md` → Base + Rule+Calculate mode Infrastructure spec
-5. `ddd-client-layer.md` → Client layer spec
-6. `ddd-model-layer.md` → Model layer spec
+1. `domain-layer.md` → Base + Rule+Calculate mode Domain spec
+2. `application-layer.md` → Base + Rule+Calculate mode Application spec
+3. `adaptor-layer.md` → Base spec
+4. `infrastructure-layer.md` → Base + Rule+Calculate mode Infrastructure spec
+5. `client-layer.md` → Client layer spec
+6. `model-layer.md` → Model layer spec
 
 ---
 
