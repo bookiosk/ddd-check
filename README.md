@@ -6,6 +6,17 @@ DDD compliance check skill for Claude Code. Auto-detects incremental vs full mod
 
 ## Install
 
+### Via plugin marketplace (recommended)
+
+```bash
+claude plugin marketplace add bookiosk/bookiosk-marketplace
+claude plugin install ddd-check@bookiosk-marketplace
+```
+
+Or in Claude Code: `/plugin` → Discover → search `ddd-check`.
+
+### Manual
+
 ```bash
 git clone https://github.com/bookiosk/ddd-check.git
 ```
@@ -16,7 +27,7 @@ Add to `.claude/settings.json`:
 {
   "skills": {
     "ddd-check": {
-      "path": "ddd-check/SKILL.md"
+      "path": "ddd-check/skills/ddd-check/SKILL.md"
     }
   }
 }
@@ -47,25 +58,29 @@ Add to `.claude/settings.json`:
 
 ```
 ddd-check/
-├── SKILL.md                        # Skill entry point
-├── references/                     # DDD rules + guides (loaded on demand)
-│   ├── domain-layer.md
-│   ├── application-layer.md
-│   ├── adaptor-layer.md
-│   ├── infrastructure-layer.md
-│   ├── client-layer.md
-│   ├── model-layer.md
-│   ├── anti-patterns.md
-│   ├── shared-checks.md
-│   ├── base-classes-reference.md
-│   ├── exception-handling.md
-│   ├── overview.md
-│   ├── anemic-vs-ddd.md
-│   └── quick-start-tutorial.md
+├── .claude-plugin/
+│   └── plugin.json                  # Plugin metadata
+├── skills/
+│   └── ddd-check/
+│       ├── SKILL.md                 # Skill entry point
+│       ├── references/              # DDD rules + guides (loaded on demand)
+│       │   ├── domain-layer.md
+│       │   ├── application-layer.md
+│       │   ├── adaptor-layer.md
+│       │   ├── infrastructure-layer.md
+│       │   ├── client-layer.md
+│       │   ├── model-layer.md
+│       │   ├── anti-patterns.md
+│       │   ├── shared-checks.md
+│       │   ├── base-classes-reference.md
+│       │   ├── exception-handling.md
+│       │   ├── overview.md
+│       │   ├── anemic-vs-ddd.md
+│       │   └── quick-start-tutorial.md
+│       └── examples/
+│           └── violation-report.md
 ├── evals/
 │   └── evals.json
-├── examples/
-│   └── violation-report.md
 ├── README.md
 └── LICENSE
 ```
