@@ -12,6 +12,35 @@ user-invocable: true
 
 Two-mode DDD compliance validation for Java projects. Auto-detects mode from user's trigger phrase.
 
+## Prerequisites
+
+This skill validates projects built on **ddd-framework** only.
+
+| Item | Value |
+|---|---|
+| Framework | ddd-framework |
+| Maven | `io.github.bookiosk:ddd-framework` |
+| Package | `org.bookiosk.ddd` |
+| Repository | https://github.com/bookiosk/bookiosk-ddd |
+
+If the project does not use ddd-framework, the check results are meaningless — stop and ask the user before proceeding.
+
+## Framework Detection (Run First)
+
+Before either mode, verify the project actually uses ddd-framework — check both the declared dependency and the imported classes:
+
+```bash
+# 1) Dependency declared in build files
+grep -rn "io\.github\.bookiosk" pom.xml build.gradle build.gradle.kts settings.gradle settings.gradle.kts 2>/dev/null
+
+# 2) Framework classes actually imported in Java source (the real "uses the jar" signal)
+grep -rln "import org\.bookiosk\.ddd\." --include="*.java" . 2>/dev/null | head -5
+```
+
+- **Source imports found** → the project genuinely uses the framework; continue with the detected mode.
+- **Only build file declares it, no source imports** → the dependency is declared but unused; warn the user the check may be meaningless and ask before continuing.
+- **Neither found** → stop and report: "This project does not use ddd-framework (`io.github.bookiosk:ddd-framework`). ddd-check validates ddd-framework conventions only — running it here would produce meaningless violations. Install the framework first, or skip this check."
+
 ## Mode Detection
 
 | Trigger Phrases | Mode | Scope |
@@ -23,6 +52,7 @@ Two-mode DDD compliance validation for Java projects. Auto-detects mode from use
 
 ### Workflow
 
+0. **Verify framework dependency** — run the Framework Detection step above; stop if not found.
 1. **Find changed files**: `git diff --cached --name-only --diff-filter=ACMR | grep '\.java$'` (also check unstaged and HEAD diff)
 2. **Classify by layer**: Map package path to layer using layer rule files in `references/`.
 3. **Load relevant rules**: Only load rule files matching changed layers. Always load `references/anti-patterns.md`.
@@ -35,6 +65,7 @@ If no Java files changed: "No Java files changed — nothing to check."
 
 ### Workflow
 
+0. **Verify framework dependency** — run the Framework Detection step above; stop if not found.
 1. **Discover**: `find . -name "*.java" -not -path "*/target/*" -not -path "*/test/*" | sort`
 2. **Load all rules**: Read every layer rule file in `references/`. Load `references/base-classes-reference.md` and `references/exception-handling.md` as needed.
 3. **Layer-by-layer audit**: Group by layer, check package, base class, naming, dependencies, structure, exception mode.

@@ -1,6 +1,6 @@
 {
   "name": "ddd-check",
-  "description": "DDD compliance check skill for Java projects. Auto-detects incremental vs full mode from trigger phrase, validates layer isolation, base classes, naming, dependency direction, identity protection, exception handling mode, and anti-patterns across domain/application/adaptor/infrastructure/client/model layers.",
+  "description": "DDD compliance check skill for Java projects built on ddd-framework (io.github.bookiosk:ddd-framework). Auto-detects incremental vs full mode from trigger phrase, validates layer isolation, base classes, naming, dependency direction, identity protection, exception handling mode, and anti-patterns across domain/application/adaptor/infrastructure/client/model layers.",
   "version": "2.0.0",
   "author": {
     "name": "bookiosk",
