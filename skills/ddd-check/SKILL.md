@@ -78,6 +78,10 @@ See `examples/violation-report.md` for sample output.
 
 See `references/shared-checks.md` for the complete severity table (CRITICAL/HIGH/MEDIUM/LOW) and per-layer checklists.
 
+## Reference Index
+
+Use `references/overview.md` §5 Document Index to pick which reference files to load: `overview.md` + `shared-checks.md` are always loaded; incremental mode loads only layer files matching changed code plus `anti-patterns.md`; full mode loads all layer files + `base-classes-reference.md` + `exception-handling.md`.
+
 ## Red Flags
 
 These thoughts mean STOP — you're about to make a mistake:

@@ -361,13 +361,20 @@ sequenceDiagram
 
 ## 5. Document Index
 
-| Spec | Content |
-|------|---------|
-| [domain-layer.md](domain-layer.md) | Aggregates, Entities, Value Objects, DomainService, Repository interfaces |
-| [application-layer.md](application-layer.md) | CQRS, Scene orchestration, Assembler, AppService |
-| [adaptor-layer.md](adaptor-layer.md) | Input/Output Adaptor, Anti-corruption layer |
-| [infrastructure-layer.md](infrastructure-layer.md) | Repository impl, PO, Mapper, Converter |
-| [client-layer.md](client-layer.md) | External RPC interface definitions, DTOs |
-| [model-layer.md](model-layer.md) | Internal shared models, enums |
-| [base-classes-reference.md](base-classes-reference.md) | All base classes and core type definitions |
-| [anti-patterns.md](anti-patterns.md) | Consolidated anti-patterns — all forbidden patterns by layer |
+| File | Content | When to Load |
+|------|---------|--------------|
+| [overview.md](overview.md) | Hexagonal architecture, layer dependency rules, project structure, mode decision tree | Always — read first, orient the audit |
+| [shared-checks.md](shared-checks.md) | Severity table (CRITICAL/HIGH/MEDIUM/LOW) + layer-by-layer checklists | Always — binding for every report |
+| [domain-layer.md](domain-layer.md) | Aggregates, Entities, Value Objects, DomainService, Repository interfaces | Loading the targeted layer |
+| [application-layer.md](application-layer.md) | CQRS, Scene orchestration, Assembler, AppService | Loading the targeted layer |
+| [adaptor-layer.md](adaptor-layer.md) | Input/Output Adaptor, Anti-corruption layer | Loading the targeted layer |
+| [infrastructure-layer.md](infrastructure-layer.md) | Repository impl, PO, Mapper, Converter | Loading the targeted layer |
+| [client-layer.md](client-layer.md) | External RPC interface definitions, DTOs | Loading the targeted layer |
+| [model-layer.md](model-layer.md) | Internal shared models, enums | Loading the targeted layer |
+| [exception-handling.md](exception-handling.md) | 阻断型 (throw) vs 分支型 (ResultDO) exception contract across layers | Every audit — verify exception mode per layer |
+| [base-classes-reference.md](base-classes-reference.md) | All base classes and core type definitions | Any time base-class/naming compliance is checked |
+| [anti-patterns.md](anti-patterns.md) | Consolidated anti-patterns — all forbidden patterns by layer | Always in incremental mode; cross-check in full mode |
+| [anemic-vs-ddd.md](anemic-vs-ddd.md) | Anemic vs rich domain model side-by-side | When judging whether a model is anemic |
+| [quick-start-tutorial.md](quick-start-tutorial.md) | End-to-end "Create Order" walkthrough with full legal file manifest | Reference example — only when a boundary case is unclear |
+
+> **Usage rules:** `overview.md` + `shared-checks.md` are always loaded. In **incremental mode**, load only the layer file(s) matching changed files, plus `anti-patterns.md`. In **full mode**, load all layer files + `base-classes-reference.md` + `exception-handling.md`. Load `anemic-vs-ddd.md` only when an anemic-model suspicion arises; `quick-start-tutorial.md` only as a boundary-case example.
